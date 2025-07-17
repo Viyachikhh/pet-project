@@ -1,6 +1,8 @@
 import gzip
 import json
 import polars as pl
+import psycopg2
+import sys
 
 def parse(filename):
     with gzip.open(filename, 'r') as f:
@@ -20,13 +22,28 @@ def parse(filename):
 
 def extract_features(filename, rows_count = 50000, features=['product/title','review/text']):
     entities = {feature : [] for feature in features}
-    for idx, dict_entity in enumerate(parse(filename)):
+    counter = 0
+    for dict_entity in parse(filename):
+
+        if len(dict_entity['review/text']) >= 700 or len(dict_entity['product/title']) > 70:
+            continue
+
         for feature in features:
             entities[feature].append(dict_entity[feature])
-        if idx == rows_count - 1:
+        counter += 1
+        if counter == rows_count:
             break
+
     return pl.from_dict(entities)
 
+
+def load_to_database(conn_params, values):
+    conn = psycopg2.connect(**conn_params)
+    cursor = conn.cursor()
+    cursor.executemany("INSERT INTO reviews (title, text) VALUES (%s, %s)", values)
+    conn.commit()  
+    conn.close()
+    
 
 
         
