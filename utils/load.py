@@ -9,25 +9,45 @@ from math import ceil
 from multiprocessing import Pool
 from time import time
 
-def parse(filename, rows_count=50000):
+def parse_line(filename, start_row_number=None, rows_count=50000):
     counter = 0
+    last_row_number = start_row_number if start_row_number is not None else 0
+
     with gzip.open(filename, 'r') as f:
         entry = {}
-        for string_entry in f:
+        for row_number, string_entry in enumerate(f):
+            if row_number < last_row_number:
+                continue
+
             string_entry = str(string_entry.strip(), encoding='utf-8')
             kv_separator = string_entry.find(':')
+
             if kv_separator == -1:
+
                 counter += 1
                 if counter == rows_count:
                     break
-                yield entry
+
+                yield row_number, entry
+
                 entry = {}
+                last_row_number += 1
                 continue
+
             feature_name = string_entry[:kv_separator]
             feature_value = string_entry[kv_separator+2:]
             entry[feature_name] = feature_value
-        yield entry
+            last_row_number += 1
 
+        yield last_row_number, entry
+
+def parse_dicts(path):
+    
+    with gzip.open(path, 'r') as g:
+        for i, l in enumerate(g):
+            yield eval(l)
+            if i == 10:
+                break
 
 def create_field(features, dict_entity):
         """
@@ -55,7 +75,7 @@ def create_field(features, dict_entity):
         return field
         
 
-def extract_features(filename:str, features=None, rows_count = 50000):
+def extract_features(filename:str, features=None, rows_count=50000, start_row_number=None):
     """
     extracting infromation from archive
     filename: path to archive;
@@ -65,16 +85,21 @@ def extract_features(filename:str, features=None, rows_count = 50000):
     if isinstance(features, str):
         features = [features]
     elif features is None:
-        features = next(parse(filename)).keys()
+        features = next(parse_line(filename)).keys()
 
 
     full_res = []
-    for dict_entity in tqdm.tqdm(parse(filename, rows_count=rows_count)):
+    last_row_number = 0
+    for row_number, dict_entity in parse_line(filename=filename, 
+                                        rows_count=rows_count, 
+                                        start_row_number=start_row_number):
         entity = create_field(features, dict_entity)
         full_res.append(entity)
+        last_row_number = row_number
     
     df = pl.from_dicts(full_res)
-    return df.rename({feature: feature.split('/')[-1] for feature in features})
+
+    return last_row_number + 1, df.rename({feature: feature.split('/')[-1] for feature in features})
 
 def calculate_helpfullness(string_repr):
     """
